@@ -293,14 +293,16 @@ class TestSyncClientSerial:
             FramerRTU,
         )
 
-    @mock.patch("serialx.Serial")
-    def test_basic_sync_serial_client(self, mock_serial):
+    @mock.patch("pymodbus.client.serial.serialx.serial_for_url")
+    def test_basic_sync_serial_client(self, mock_serial_for_url):
         """Test the basic methods for the serial sync client."""
         # receive/send
+        mock_serial = mock.MagicMock()
         mock_serial.num_unread_bytes = lambda: 0
         mock_serial.write = lambda x: len(x)  # pylint: disable=unnecessary-lambda
-
         mock_serial.read = lambda size: b"\x00" * size
+        mock_serial_for_url.return_value = mock_serial
+
         client = ModbusSerialClient("/dev/null")
         client.socket = mock_serial
         assert not client.send(b'')
