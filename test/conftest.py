@@ -270,6 +270,10 @@ class mockSocket:  # pylint: disable=invalid-name
         self.packets.append(msg)
         self.in_waiting += len(msg)
 
+    def num_unread_bytes(self):
+        """Return number of unread bytes."""
+        return self.in_waiting
+
     def close(self):
         """Close."""
         return True

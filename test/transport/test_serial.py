@@ -7,7 +7,7 @@ from functools import partial
 from unittest import mock
 
 import pytest
-import serial
+import serialx
 
 from pymodbus.transport.serialtransport import (
     SerialTransport,
@@ -16,7 +16,7 @@ from pymodbus.transport.serialtransport import (
 
 
 @mock.patch(
-    "pymodbus.transport.serialtransport.serial.serial_for_url", mock.MagicMock()
+    "pymodbus.transport.serialtransport.serialx.serial_for_url", mock.MagicMock()
 )
 class TestTransportSerial:
     """Test transport serial module."""
@@ -126,7 +126,7 @@ class TestTransportSerial:
         """Test polling."""
         comm = SerialTransport(asyncio.get_running_loop(), mock.Mock(), "dummy", None, None, None, None, None)
         comm.sync_serial = mock.MagicMock()
-        comm.sync_serial.read.side_effect = serial.SerialException("test")
+        comm.sync_serial.read.side_effect = serialx.SerialException("test")
         await comm.polling_task()
 
     @pytest.mark.skipif(os.name == "nt", reason="Windows not supported")
@@ -137,7 +137,7 @@ class TestTransportSerial:
         comm.sync_serial = mock.MagicMock()
         comm.sync_serial.write.return_value = 4
         comm.intern_write_buffer.append(b"abcd")
-        comm.sync_serial.read.side_effect = serial.SerialException("test")
+        comm.sync_serial.read.side_effect = serialx.SerialException("test")
         await comm.polling_task()
 
 
@@ -148,7 +148,7 @@ class TestTransportSerial:
         comm.sync_serial = mock.MagicMock()
         comm.sync_serial.write.side_effect = BlockingIOError("test")
         comm.intern_write_ready()
-        comm.sync_serial.write.side_effect = serial.SerialException("test")
+        comm.sync_serial.write.side_effect = serialx.SerialException("test")
         comm.intern_write_ready()
 
     @pytest.mark.skipif(os.name == "nt", reason="Windows not supported")
@@ -195,8 +195,8 @@ class TestTransportSerial:
         comm.intern_protocol.data_received.assert_called_once()
 
     async def test_import_pyserial(self):
-        """Test pyserial not installed."""
+        """Test serialx not installed."""
         with mock.patch.dict(sys.modules, {'no_modules': None}) as mock_modules:
-            del mock_modules['serial']
+            del mock_modules['serialx']
             with pytest.raises(RuntimeError):
                 SerialTransport(asyncio.get_running_loop(), mock.Mock(), "dummy", None, None, None, None, None)

@@ -1,4 +1,4 @@
-"""asyncio serial support for modbus (based on pyserial)."""
+"""asyncio serial support for modbus (based on serialx)."""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,20 @@ import sys
 
 
 with contextlib.suppress(ImportError):
-    import serial
+    import serialx
+
+
+def _parity(value):
+    """Map a pyserial-style parity string to a serialx Parity enum."""
+    if value is None or isinstance(value, serialx.Parity):
+        return value
+    return {
+        "N": serialx.Parity.NONE,
+        "O": serialx.Parity.ODD,
+        "E": serialx.Parity.EVEN,
+        "M": serialx.Parity.MARK,
+        "S": serialx.Parity.SPACE,
+    }.get(value.upper(), serialx.Parity.NONE)
 
 
 class SerialTransport(asyncio.Transport):
@@ -20,20 +33,20 @@ class SerialTransport(asyncio.Transport):
     def __init__(self, loop, protocol, url, baudrate, bytesize, parity, stopbits, timeout) -> None:
         """Initialize."""
         super().__init__()
-        if "serial" not in sys.modules:
+        if "serialx" not in sys.modules:
             raise RuntimeError(
-                "Serial client requires pyserial "
-                'Please install with "pip install pyserial" and try again.'
+                "Serial client requires serialx "
+                'Please install with "pip install serialx" and try again.'
             )
         self.async_loop = loop
         self.intern_protocol: asyncio.BaseProtocol = protocol
-        self.sync_serial = serial.serial_for_url(url, exclusive=True,
-            baudrate=baudrate, bytesize=bytesize, parity=parity, stopbits=stopbits, timeout=timeout
+        self.sync_serial = serialx.serial_for_url(url, exclusive=True,
+            baudrate=baudrate, byte_size=bytesize, parity=_parity(parity), stopbits=stopbits, read_timeout=timeout
 )
         self.intern_write_buffer: list[bytes] = []
         self.poll_task: asyncio.Task | None = None
         self._poll_wait_time = 0.0005
-        self.sync_serial.timeout = 0
+        self.sync_serial.read_timeout = 0
         self.sync_serial.write_timeout = 0
 
     def setup(self) -> None:
@@ -133,7 +146,7 @@ class SerialTransport(asyncio.Transport):
         try:
             if data := self.sync_serial.read(1024):
                 self.intern_protocol.data_received(data)  # type: ignore[attr-defined]
-        except serial.SerialException as exc:
+        except (OSError, serialx.SerialException) as exc:
             self.close(exc=exc)
 
     def intern_write_ready(self) -> None:
@@ -150,7 +163,7 @@ class SerialTransport(asyncio.Transport):
             self.flush()
         except (BlockingIOError, InterruptedError):
             return
-        except serial.SerialException as exc:
+        except (OSError, serialx.SerialException) as exc:
             self.close(exc=exc)
 
     async def polling_task(self):
@@ -159,7 +172,7 @@ class SerialTransport(asyncio.Transport):
             await asyncio.sleep(self._poll_wait_time)
             while self.intern_write_buffer:
                 self.intern_write_ready()
-            if self.sync_serial.in_waiting:
+            if self.sync_serial.num_unread_bytes():
                 self.intern_read_ready()
 
 async def create_serial_connection(

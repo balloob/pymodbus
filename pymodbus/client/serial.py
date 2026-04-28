@@ -16,7 +16,23 @@ from .base import ModbusBaseClient, ModbusBaseSyncClient
 
 
 with contextlib.suppress(ImportError):
-    import serial
+    import serialx
+
+
+_PARITY_MAP: dict[str, "serialx.Parity"] = {}
+
+
+def _parity(value: str) -> "serialx.Parity":
+    """Map a pyserial-style parity string to a serialx Parity enum."""
+    if not _PARITY_MAP:
+        _PARITY_MAP.update({
+            "N": serialx.Parity.NONE,
+            "O": serialx.Parity.ODD,
+            "E": serialx.Parity.EVEN,
+            "M": serialx.Parity.MARK,
+            "S": serialx.Parity.SPACE,
+        })
+    return _PARITY_MAP.get(value.upper(), serialx.Parity.NONE)
 
 
 class AsyncModbusSerialClient(ModbusBaseClient):
@@ -85,10 +101,10 @@ class AsyncModbusSerialClient(ModbusBaseClient):
         trace_connect: Callable[[bool], None] | None = None,
     ) -> None:
         """Initialize Asyncio Modbus Serial Client."""
-        if "serial" not in sys.modules:  # pragma: no cover
+        if "serialx" not in sys.modules:  # pragma: no cover
             raise RuntimeError(
-                "Serial client requires pyserial "
-                'Please install with "pip install pyserial" and try again.'
+                "Serial client requires serialx "
+                'Please install with "pip install serialx" and try again.'
             )
         if framer not in [FramerType.ASCII, FramerType.RTU]:
             raise TypeError("Only FramerType RTU/ASCII allowed.")
@@ -177,10 +193,10 @@ class ModbusSerialClient(ModbusBaseSyncClient):
         trace_connect: Callable[[bool], None] | None = None,
     ) -> None:
         """Initialize Modbus Serial Client."""
-        if "serial" not in sys.modules:  # pragma: no cover
+        if "serialx" not in sys.modules:  # pragma: no cover
             raise RuntimeError(
-                "Serial client requires pyserial "
-                'Please install with "pip install pyserial" and try again.'
+                "Serial client requires serialx "
+                'Please install with "pip install serialx" and try again.'
             )
         if framer not in [FramerType.ASCII, FramerType.RTU]:
             raise TypeError("Only RTU/ASCII allowed.")
@@ -205,7 +221,7 @@ class ModbusSerialClient(ModbusBaseSyncClient):
             trace_pdu,
             trace_connect,
         )
-        self.socket: serial.Serial | None = None
+        self.socket: serialx.Serial | None = None
         self._t0 = float(1 + bytesize + stopbits) / baudrate
 
         # Check every 4 bytes / 2 registers if the reading is ready
@@ -227,18 +243,18 @@ class ModbusSerialClient(ModbusBaseSyncClient):
         if self.socket:
             return True
         try:
-            self.socket = serial.serial_for_url(
+            self.socket = serialx.serial_for_url(
                 self.comm_params.host,
-                timeout=self.comm_params.timeout_connect,
-                bytesize=self.comm_params.bytesize,
+                read_timeout=self.comm_params.timeout_connect,
+                byte_size=self.comm_params.bytesize,
                 stopbits=self.comm_params.stopbits,
                 baudrate=self.comm_params.baudrate,
-                parity=self.comm_params.parity,
+                parity=_parity(self.comm_params.parity),
                 exclusive=True,
+                inter_byte_timeout=self.inter_byte_timeout or None,
             )
-            self.socket.inter_byte_timeout = self.inter_byte_timeout
-        # except serial.SerialException as msg:
-        # pyserial raises undocumented exceptions like termios
+        # except serialx.SerialException as msg:
+        # serialx raises undocumented exceptions like termios
         except Exception as msg:  # pylint: disable=broad-exception-caught
             Log.error("{}", msg)
             self.close()
@@ -252,7 +268,7 @@ class ModbusSerialClient(ModbusBaseSyncClient):
 
     def _in_waiting(self):
         """Return waiting bytes."""
-        return getattr(self.socket, "in_waiting") if hasattr(self.socket, "in_waiting") else getattr(self.socket, "inWaiting")()
+        return self.socket.num_unread_bytes()
 
     def send(self, request: bytes, addr: tuple | None = None) -> int:
         """Send data on the underlying socket."""
