@@ -10,7 +10,6 @@ from pymodbus.logging import Log
 from pymodbus.transport import (
     CommType,
 )
-from pymodbus.transport.serialtransport import SerialTransport
 
 
 FACTOR = 1.2 if platform.system().lower() != "windows" else 4.2
@@ -131,64 +130,6 @@ class TestTransportComm:
         if use_comm_type != CommType.UDP:
             assert not server.active_connections
         server.close()
-
-    def wrapped_write(self, data):
-        """Wrap serial write, to split parameters."""
-        return self.serial_write(data[:2])
-
-    @pytest.mark.parametrize(
-        ("use_comm_type", "use_host"),
-        [
-            (CommType.SERIAL, "socket://localhost:7303"),
-        ],
-    )
-    async def test_split_serial_packet(self, client, server, use_port):
-        """Test connection and data exchange."""
-        Log.debug("test_split_serial_packet {}", use_port)
-        assert await server.listen()
-        assert await client.connect()
-        await asyncio.sleep(0.5)
-        assert len(server.active_connections) == 1
-        server_connected = list(server.active_connections.values())[0]
-        test_data = b"abcd"
-
-        self.serial_write = (  # pylint: disable=attribute-defined-outside-init
-            client.transport.sync_serial.write
-        )
-        with mock.patch.object(
-            client.transport.sync_serial, "write", wraps=self.wrapped_write
-        ):
-            client.send(test_data)
-            await asyncio.sleep(0.5)
-        assert server_connected.recv_buffer == test_data
-        assert not client.recv_buffer
-        client.close()
-        server.close()
-
-    @pytest.mark.parametrize(
-        ("use_comm_type", "use_host"),
-        [
-            (CommType.SERIAL, "socket://localhost:7300"),
-        ],
-    )
-    @pytest.mark.skipif(SerialTransport.force_poll, reason="Serial poll not supported")
-    async def test_serial_poll(self, client, server, use_port):
-        """Test connection and data exchange."""
-        Log.debug("test_serial_poll {}", use_port)
-        assert await server.listen()
-        SerialTransport.force_poll = True
-        assert await client.connect()
-        await asyncio.sleep(0.5)
-        assert len(server.active_connections) == 1
-        server_connected = list(server.active_connections.values())[0]
-        test_data = b"abcd" * 1000
-        client.send(test_data)
-        await asyncio.sleep(0.5)
-        assert server_connected.recv_buffer == test_data
-        assert not client.recv_buffer
-        client.close()
-        server.close()
-        SerialTransport.force_poll = False
 
     @pytest.mark.parametrize(
         ("use_comm_type", "use_host"),

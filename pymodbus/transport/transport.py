@@ -49,6 +49,7 @@ It basically provides a pipe, without caring about the actual data content.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import dataclasses
 import ssl
@@ -60,7 +61,28 @@ from functools import partial
 from typing import Any
 
 from ..logging import Log
-from .serialtransport import create_serial_connection
+
+
+with contextlib.suppress(ImportError):
+    import serialx
+
+
+def _to_parity(value):
+    """Map a pyserial-style parity string to a serialx Parity enum.
+
+    Accepts existing Parity enum values unchanged; falls back to
+    ``Parity.NONE`` for anything unrecognised so caller-side defaults
+    (``CommParams.parity = ''``) keep working.
+    """
+    if value is None or isinstance(value, serialx.Parity):
+        return value or serialx.Parity.NONE
+    return {
+        "N": serialx.Parity.NONE,
+        "O": serialx.Parity.ODD,
+        "E": serialx.Parity.EVEN,
+        "M": serialx.Parity.MARK,
+        "S": serialx.Parity.SPACE,
+    }.get(str(value).upper(), serialx.Parity.NONE)
 
 
 NULLMODEM_HOST = "__pymodbus_nullmodem"
@@ -197,15 +219,14 @@ class ModbusProtocol(asyncio.BaseProtocol):
     def init_setup_connect_listen(self, host: str, port: int) -> None:
         """Handle connect/listen handler."""
         if self.comm_params.comm_type == CommType.SERIAL:
-            self.call_create = partial(create_serial_connection,
+            self.call_create = partial(serialx.create_serial_connection,
                 self.loop,
                 self.handle_new_connection,
                 host,
                 baudrate=self.comm_params.baudrate,
-                bytesize=self.comm_params.bytesize,
-                parity=self.comm_params.parity,
+                byte_size=self.comm_params.bytesize,
+                parity=_to_parity(self.comm_params.parity),
                 stopbits=self.comm_params.stopbits,
-                timeout=self.comm_params.timeout_connect,
             )
             return
         if self.comm_params.comm_type == CommType.UDP:

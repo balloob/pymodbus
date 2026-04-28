@@ -12,27 +12,12 @@ from ..framer import FramerType
 from ..logging import Log
 from ..pdu import ModbusPDU
 from ..transport import CommParams, CommType
+from ..transport.transport import _to_parity
 from .base import ModbusBaseClient, ModbusBaseSyncClient
 
 
 with contextlib.suppress(ImportError):
     import serialx
-
-
-_PARITY_MAP: dict[str, "serialx.Parity"] = {}
-
-
-def _parity(value: str) -> "serialx.Parity":
-    """Map a pyserial-style parity string to a serialx Parity enum."""
-    if not _PARITY_MAP:
-        _PARITY_MAP.update({
-            "N": serialx.Parity.NONE,
-            "O": serialx.Parity.ODD,
-            "E": serialx.Parity.EVEN,
-            "M": serialx.Parity.MARK,
-            "S": serialx.Parity.SPACE,
-        })
-    return _PARITY_MAP.get(value.upper(), serialx.Parity.NONE)
 
 
 class AsyncModbusSerialClient(ModbusBaseClient):
@@ -249,10 +234,11 @@ class ModbusSerialClient(ModbusBaseSyncClient):
                 byte_size=self.comm_params.bytesize,
                 stopbits=self.comm_params.stopbits,
                 baudrate=self.comm_params.baudrate,
-                parity=_parity(self.comm_params.parity),
+                parity=_to_parity(self.comm_params.parity),
                 exclusive=True,
                 inter_byte_timeout=self.inter_byte_timeout or None,
             )
+            self.socket.open()
         # except serialx.SerialException as msg:
         # serialx raises undocumented exceptions like termios
         except Exception as msg:  # pylint: disable=broad-exception-caught
@@ -308,11 +294,23 @@ class ModbusSerialClient(ModbusBaseSyncClient):
         if not self.socket:
             raise ConnectionException(str(self))
         if size is None:
-            size = self._wait_for_data()
+            # serialx's SocketSerial backend always reports zero waiting
+            # bytes (`num_unread_bytes()` only works for hardware ports),
+            # so the byte-count poll loop in `_wait_for_data` returns 0
+            # and we'd never read anything.  Fall back to a blocking
+            # read of one byte (driven by `read_timeout`) and then drain
+            # whatever else the kernel has buffered.
+            available = self._wait_for_data()
+            if available:
+                return self.socket.read(available)
+            head = self.socket.read(1)
+            if not head:
+                return b""
+            tail = self.socket.read(self._in_waiting()) if self._in_waiting() else b""
+            return head + tail
         if size > self._in_waiting():
             self._wait_for_data()
-        result = self.socket.read(size)
-        return result
+        return self.socket.read(size)
 
     def is_socket_open(self) -> bool:
         """Check if socket is open."""
