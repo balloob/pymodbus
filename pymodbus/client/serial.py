@@ -239,9 +239,7 @@ class ModbusSerialClient(ModbusBaseSyncClient):
                 inter_byte_timeout=self.inter_byte_timeout or None,
             )
             self.socket.open()
-        # except serialx.SerialException as msg:
-        # serialx raises undocumented exceptions like termios
-        except Exception as msg:  # pylint: disable=broad-exception-caught
+        except (serialx.SerialException, OSError) as msg:
             Log.error("{}", msg)
             self.close()
         return self.socket is not None
